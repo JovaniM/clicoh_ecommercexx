@@ -14,10 +14,3 @@ class UserCreate(generics.CreateAPIView):
     queryset = user_model.objects.all()
     serializer_class = UserSerializer
     permission_classes = (AllowAny, )
-
-
-class Protegida(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        return Response({"content": "Esta vista está protegida"})
