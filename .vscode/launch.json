@@ -24,9 +24,10 @@
             "console": "integratedTerminal",
             "args": [
                 "test",
-                "-v",
-                "2",
-                "-n",
+                "jwt_auth",
+                //"-v",
+                //"2",
+                //"-n",
             ],
             "django": true
         },

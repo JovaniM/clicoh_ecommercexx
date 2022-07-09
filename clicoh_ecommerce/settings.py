@@ -41,7 +41,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'user_management',
-    'jwt_auth'
+    'jwt_auth',
+    'drf_spectacular',
+    'api'
 ]
 
 AUTH_USER_MODEL = 'custom_user.User'
@@ -118,7 +120,18 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema'
 }
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Clicoh Ecommerce API',
+    'DESCRIPTION': 'Project for backend developer position',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]/',
+}
+
+APPEND_SLASH = True
 
 # Internationalization
 # https://docs.djangoproject.com/en/4.0/topics/i18n/
