@@ -1,12 +1,13 @@
 from django.db import models
+from api import enums
 from api.utils import requests_retry_session
 from api.validators import greater_equal_than_zero
+from rest_framework.exceptions import ValidationError
 from rest_framework import status
 
 import json
 
 
-# Create your models here.
 class Product(models.Model):
     available = models.BooleanField("available", default=False)
     created_at = models.DateTimeField("created_at", auto_now_add=True)
@@ -15,6 +16,26 @@ class Product(models.Model):
         "price", null=False, default=0, validators=[greater_equal_than_zero])
     stock = models.IntegerField("stock", null=False, default=0)
     updated_at = models.DateTimeField("updated_at", auto_now=True)
+
+    def is_valid(self):
+        if not self.available:
+            raise ValidationError(
+                enums.Errors.PRODUCT_NOT_AVAILABLE_ERROR.value
+            )
+
+    def can_be_supplied(self, quantity):
+        self.is_valid()
+        return self.stock >= quantity
+
+    def add_stock_quantity(self, quantity):
+        greater_equal_than_zero(quantity)
+        self.stock += quantity
+        self.save()
+
+    def substract_stock_quantity(self, quantity):
+        greater_equal_than_zero(quantity)
+        self.stock -= quantity
+        self.save()
 
 
 class Order(models.Model):
@@ -27,11 +48,13 @@ class Order(models.Model):
         DRAFT = 'DRAFT', 'DRAFT'
         PROCESSED = 'PROCESSED', 'PROCESSED'
 
+    EDITABLE_STATUS = [OrderStatus.DRAFT]
+
     created_at = models.DateTimeField("created_at", auto_now_add=True)
     details = models.ManyToManyField(Product, through='OrderDetail')
     movement_type = models.CharField(
         null=False, choices=MovementStatus.choices,
-        default=MovementStatus.INGRESS,
+        default=MovementStatus.EGRESS,
         db_index=True, max_length=10
     )
     status = models.CharField(
@@ -85,3 +108,6 @@ class OrderDetail(models.Model):
     quantity = models.IntegerField(
         "quantity", null=False, validators=[greater_equal_than_zero])
     updated_at = models.DateTimeField("updated_at", auto_now=True)
+
+    class Meta:
+        unique_together = [['product', 'order']]

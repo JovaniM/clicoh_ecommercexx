@@ -24,7 +24,7 @@
             "console": "integratedTerminal",
             "args": [
                 "test",
-                "jwt_auth",
+                "api",
                 //"-v",
                 //"2",
                 //"-n",

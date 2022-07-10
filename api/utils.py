@@ -19,3 +19,11 @@ def requests_retry_session(
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
+
+
+def error_response(exception, error):
+    response = {
+        "ok": False,
+        "message": error
+    }
+    return exception(response)
