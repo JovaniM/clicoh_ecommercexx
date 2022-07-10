@@ -3,10 +3,10 @@ from api import enums
 from api.models import (
     Order, OrderDetail, Product
 )
-from api.utils import error_response
+from api.utils import CustomValidationError
 from api.validators import greater_than_zero
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
+from rest_framework import status
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -60,31 +60,23 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         return value
 
     def _get_related_order(self):
-        order = Order.objects.filter(
+        return Order.objects.filter(
             id=self.context.get('order_pk', None)
         ).first()
-        #if not order:
-        #    raise error_response(
-        #        ValidationError, enums.Errors.MISSING_ORDER_ERROR.value
-        #    )
-        return order
 
     def _check_duplicated_products(self, order_products, product):
         if product and product in order_products:
-            raise error_response(
-                ValidationError, enums.Errors.DUPLICATED_PRODUCT_ERROR.value
+            raise CustomValidationError(
+                enums.Errors.DUPLICATED_PRODUCT_ERROR.value,
+                status.HTTP_400_BAD_REQUEST
             )
 
     def validate(self, attrs):
         order = self._get_related_order()
-        #if not order:
-        #    raise error_response(
-        #        ValidationError, enums.Errors.MISSING_ORDER_ERROR.value
-        #    )
-
         if order and order.status not in Order.EDITABLE_STATUS:
-            raise error_response(
-                ValidationError, enums.Errors.NOT_EDITABLE_ORDER_ERROR.value
+            raise CustomValidationError(
+                enums.Errors.NOT_EDITABLE_ORDER_ERROR.value,
+                status.HTTP_400_BAD_REQUEST
             )
         return attrs
 
@@ -112,8 +104,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         try:
             return super().create(validated_data)
         except IntegrityError:
-            raise error_response(
-                ValidationError, enums.Errors.INTEGRITY_PRODUCT_ERROR.value
+            raise CustomValidationError(
+                enums.Errors.INTEGRITY_PRODUCT_ERROR.value,
+                status.HTTP_400_BAD_REQUEST
             )
 
     class Meta:

@@ -1,3 +1,4 @@
+from itertools import product
 import json
 
 from coreapi import Object
@@ -710,8 +711,7 @@ class APITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('ok', data)
-        # TODO: change to boolean
-        self.assertEqual(data['ok'], 'False')
+        self.assertEqual(data['ok'], False)
         self.assertIn('message', data)
         self.assertEqual(
             data['message'],
@@ -929,8 +929,7 @@ class APITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('ok', data)
-        # TODO: change to boolean
-        self.assertEqual(data['ok'], 'False')
+        self.assertEqual(data['ok'], False)
         self.assertIn('message', data)
         self.assertEqual(
             data['message'],
@@ -979,13 +978,11 @@ class APITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('ok', data)
-        # TODO: change to boolean
-        self.assertEqual(data['ok'], ['False'])
+        self.assertEqual(data['ok'], False)
         self.assertIn('message', data)
-        # TODO: change to single string
         self.assertEqual(
             data['message'],
-            [enums.Errors.NOT_EDITABLE_ORDER_ERROR.value]
+            enums.Errors.NOT_EDITABLE_ORDER_ERROR.value
         )
 
     @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
@@ -1093,8 +1090,7 @@ class APITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('ok', data)
-        # TODO: change to boolean
-        self.assertEqual(data['ok'], 'False')
+        self.assertEqual(data['ok'], False)
         self.assertIn('message', data)
         self.assertEqual(
             data['message'],
@@ -1141,13 +1137,11 @@ class APITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('ok', data)
-        # TODO: change to boolean
-        self.assertEqual(data['ok'], ['False'])
+        self.assertEqual(data['ok'], False)
         self.assertIn('message', data)
-        # TODO: change to single string
         self.assertEqual(
             data['message'],
-            [enums.Errors.NOT_EDITABLE_ORDER_ERROR.value]
+            enums.Errors.NOT_EDITABLE_ORDER_ERROR.value
         )
 
     @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
@@ -1199,10 +1193,11 @@ class APITests(TestCase):
 
     @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
     def test_order_detail_process_admin_user(self, _):
-        url = reverse(
-            "api:order-process",
-            args=[self.order1.id]
-        )
+        EXTRA_STOCK = 1
+        self.product1.stock = self.order_detail1.quantity + EXTRA_STOCK
+        self.product1.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
         token = self.get_token_for_user(self.admin_user)
         self.client.credentials(**token)
         response = self.client.post(url)
@@ -1211,10 +1206,11 @@ class APITests(TestCase):
 
     @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
     def test_order_detail_process_normal_user(self, _):
-        url = reverse(
-            "api:order-process",
-            args=[self.order1.id]
-        )
+        EXTRA_STOCK = 1
+        self.product1.stock = self.order_detail1.quantity + EXTRA_STOCK
+        self.product1.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
         token = self.get_token_for_user(self.normal_user)
         self.client.credentials(**token)
 
@@ -1223,21 +1219,484 @@ class APITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_order_detail_process_no_user(self):
-        url = reverse(
-            "api:order-process",
-            args=[self.order1.id]
-        )
+        url = reverse("api:order-process",  args=[self.order1.id])
 
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-    # deleting a used product must be raise an exception
-    # deleting a order must delete order details
-    # create ingres and apply
-    # create egress and apply
-    # create ingres on process and cancel
-    # create egress on process and cancel
-    # create egres without space
-    # create ingress without space
-    # create apply not editable
-    # create cancel not editable
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_process_egress_capacity_single_product(self, _):
+        EXTRA_STOCK = 1
+        self.product1.stock = self.order_detail1.quantity + EXTRA_STOCK
+        self.product1.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_product = Product.objects.get(id=self.product1.id)
+        updated_order = Order.objects.get(id=self.order1.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated_product.stock, EXTRA_STOCK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.PROCESSED.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_process_egress_capacity_multiple_product(self, _):
+        order_detail = OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=3
+        )
+        EXTRA_STOCK = 1
+        self.product1.stock = self.order_detail1.quantity + EXTRA_STOCK
+        self.product1.save()
+
+        self.product2.stock = order_detail.quantity + EXTRA_STOCK
+        self.product2.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_product1 = Product.objects.get(id=self.product1.id)
+        updated_product2 = Product.objects.get(id=self.product2.id)
+        updated_order = Order.objects.get(id=self.order1.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated_product1.stock, EXTRA_STOCK)
+        self.assertEqual(updated_product2.stock, EXTRA_STOCK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.PROCESSED.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_process_ingress_capacity_single_product(self, _):
+        self.order1.movement_type = Order.MovementStatus.INGRESS.value
+        self.order1.save()
+
+        INITIAL_STOCK = 1
+        self.product1.stock = INITIAL_STOCK
+        self.product1.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_product = Product.objects.get(id=self.product1.id)
+        updated_order = Order.objects.get(id=self.order1.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_product.stock,
+            INITIAL_STOCK + self.order_detail1.quantity
+        )
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.PROCESSED.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_process_ingress_capacity_multiple_product(self, _):
+        self.order1.movement_type = Order.MovementStatus.INGRESS.value
+        self.order1.save()
+
+        order_detail = OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=3
+        )
+        INITIAL_STOCK = 1
+        self.product1.stock = INITIAL_STOCK
+        self.product1.save()
+
+        self.product2.stock = INITIAL_STOCK
+        self.product2.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_product1 = Product.objects.get(id=self.product1.id)
+        updated_product2 = Product.objects.get(id=self.product2.id)
+        updated_order = Order.objects.get(id=self.order1.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_product1.stock,
+            self.order_detail1.quantity + INITIAL_STOCK
+        )
+        self.assertEqual(
+            updated_product2.stock,
+            order_detail.quantity + INITIAL_STOCK
+        )
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.PROCESSED.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_process_egress_not_capacity_single_product(self, _):
+        url = reverse("api:order-process", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(
+            data['message'],
+            enums.Errors.STOCK_AVAILABILITY_ERROR.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_process_egress_not_capacity_multiple_product(self, _):
+        OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=3
+        )
+        INITIAL_STOCK = 1
+        self.product1.stock = self.order_detail1.quantity + INITIAL_STOCK
+        self.product1.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(
+            data['message'],
+            enums.Errors.STOCK_AVAILABILITY_ERROR.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_process_egress_not_editable(self, _):
+        self.order1.status = Order.OrderStatus.CANCELLED.value
+        self.order1.save()
+
+        url = reverse("api:order-process", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(
+            data['message'],
+            enums.Errors.NOT_EDITABLE_ORDER_ERROR.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_admin_user(self, _):
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_normal_user(self, _):
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.normal_user)
+        self.client.credentials(**token)
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_order_detail_cancel_no_user(self):
+        url = reverse("api:order-cancel", args=[self.order1.id])
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel(self, _):
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_order = Order.objects.get(id=self.order1.id)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.CANCELLED.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_multiple_order_details(self, _):
+        OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=1
+        )
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_order = Order.objects.get(id=self.order1.id)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.CANCELLED.value
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_already_cancelled(self, _):
+        self.order1.status = Order.OrderStatus.CANCELLED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(data['message'], "Already cancelled.")
+    
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_already_cancelled_multiple_order_details(self, _):
+        OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=1
+        )
+        self.order1.status = Order.OrderStatus.CANCELLED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(data['message'], "Already cancelled.")
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_ingress_already_processed(self, _):
+        INITIAL_STOCK = 10
+        self.product1.stock = INITIAL_STOCK
+        self.product1.save()
+        self.order1.movement_type = Order.MovementStatus.INGRESS.value
+        self.order1.status = Order.OrderStatus.PROCESSED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_order = Order.objects.get(id=self.order1.id)
+        updated_product = Product.objects.get(id=self.product1.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.CANCELLED.value
+        )
+        self.assertEqual(
+            updated_product.stock,
+            INITIAL_STOCK - self.order_detail1.quantity
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_ingress_already_processed_multiple_order_details(self, _):
+        order_detail = OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=8
+        )
+        INITIAL_STOCK = 10
+        self.product1.stock = INITIAL_STOCK
+        self.product1.save()
+        self.product2.stock = INITIAL_STOCK
+        self.product2.save()
+        self.order1.movement_type = Order.MovementStatus.INGRESS.value
+        self.order1.status = Order.OrderStatus.PROCESSED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_order = Order.objects.get(id=self.order1.id)
+        updated_product1 = Product.objects.get(id=self.product1.id)
+        updated_product2 = Product.objects.get(id=self.product2.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.CANCELLED.value
+        )
+        self.assertEqual(
+            updated_product1.stock,
+            INITIAL_STOCK - self.order_detail1.quantity
+        )
+        self.assertEqual(
+            updated_product2.stock,
+            INITIAL_STOCK - order_detail.quantity
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_egress_already_processed(self, _):
+        INITIAL_STOCK = 10
+        self.product1.stock = INITIAL_STOCK
+        self.product1.save()
+        self.order1.status = Order.OrderStatus.PROCESSED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_order = Order.objects.get(id=self.order1.id)
+        updated_product = Product.objects.get(id=self.product1.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.CANCELLED.value
+        )
+        self.assertEqual(
+            updated_product.stock,
+            INITIAL_STOCK + self.order_detail1.quantity
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_egress_already_processed_multiple_order_detail(self, _):
+        order_detail = OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=8
+        )
+        INITIAL_STOCK = 10
+        self.product1.stock = INITIAL_STOCK
+        self.product1.save()
+        self.product2.stock = INITIAL_STOCK
+        self.product2.save()
+        self.order1.status = Order.OrderStatus.PROCESSED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+
+        updated_order = Order.objects.get(id=self.order1.id)
+        updated_product1 = Product.objects.get(id=self.product1.id)
+        updated_product2 = Product.objects.get(id=self.product2.id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            updated_order.status,
+            Order.OrderStatus.CANCELLED.value
+        )
+        self.assertEqual(
+            updated_product1.stock,
+            INITIAL_STOCK + self.order_detail1.quantity
+        )
+        self.assertEqual(
+            updated_product2.stock,
+            INITIAL_STOCK + order_detail.quantity
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_ingress_already_processed_no_stock(self, _):
+        self.order1.movement_type = Order.MovementStatus.INGRESS.value
+        self.order1.status = Order.OrderStatus.PROCESSED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(
+            data['message'],
+            "This order cant be cancelled due stock availability."
+        )
+
+    @patch('api.models.Order._get_usd_exchange_rate', return_value=1)
+    def test_order_detail_cancel_ingress_already_processed_no_stock_multiple_order_detail(self, _):
+        OrderDetail.objects.create(
+            order=self.order1, product=self.product2, quantity=8
+        )
+        INITIAL_STOCK = 10
+        self.product1.stock = INITIAL_STOCK
+        self.product1.save()
+        self.order1.movement_type = Order.MovementStatus.INGRESS.value
+        self.order1.status = Order.OrderStatus.PROCESSED.value
+        self.order1.save()
+
+        url = reverse("api:order-cancel", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.post(url)
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(
+            data['message'],
+            "This order cant be cancelled due stock availability."
+        )
+
+    def test_delete_product_referenced_by_order_detail(self):
+        url = reverse("api:product-detail", args=[self.product1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.delete(url)
+        data = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('ok', data)
+        self.assertEqual(data['ok'], False)
+        self.assertIn('message', data)
+        self.assertEqual(
+            data['message'],
+            enums.Errors.PROTECTED_PRODUCT_ERROR.value
+        )
+
+    def test_delete_order_delete_related_order_detail(self):
+        url = reverse("api:order-detail", args=[self.order1.id])
+        token = self.get_token_for_user(self.admin_user)
+        self.client.credentials(**token)
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        order = OrderDetail.objects.filter(id=self.order_detail1.id).first()
+        order_detail = Order.objects.filter(id=self.order1.id).first()
+        self.assertIsNone(order)
+        self.assertIsNone(order_detail)

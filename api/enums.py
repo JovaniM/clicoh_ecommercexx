@@ -9,3 +9,6 @@ class Errors(Enum):
     GREATER_ZERO_ERROR = "Value must be greater or equal than zero."
     NOT_EDITABLE_ORDER_ERROR = "Order cant be modified at this point."
     PRODUCT_NOT_AVAILABLE_ERROR = "The requested product is not available."
+    PROTECTED_PRODUCT_ERROR = "You can't delete this Product because it have some references."
+    STOCK_AVAILABILITY_ERROR = "This order cant be supplied due stock availability."
+    ORDER_ALREADY_CANCELLED = "Already cancelled."

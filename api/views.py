@@ -1,3 +1,4 @@
+from api import enums
 from api.models import (
     Order, OrderDetail, Product
 )
@@ -9,14 +10,28 @@ from api.serializers import (
     OrderDetailSerializer, OrderSerializer, OrderStatusSerializer,
     ProductReadOnlySerializer, ProductSerializer
 )
+from api.utils import http_error_response, http_success_response
+from django.db.models import ProtectedError
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny, IsAuthenticated, OR
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 
 class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductReadOnlySerializer
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return http_error_response(
+                enums.Errors.PROTECTED_PRODUCT_ERROR.value,
+                status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_queryset(self):
         params = {}
@@ -50,17 +65,19 @@ class OrderViewSet(
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
 
-    def _manage_order_status(self, order, status):
+    def _manage_order_status(self, order, order_status):
         if not order:
-            # TODO: add to custom response
-            return Response(
-                {"ok": False, "message": "error"},
-                status=status.HTTP_404_NOT_FOUND
+            return http_error_response(
+                enums.Errors.MISSING_ORDER_ERROR.value,
+                status.HTTP_404_NOT_FOUND
             )
-        order.status = status
+
+        order.status = order_status
         order.save()
-        # TODO: add to custom response
-        return Response(OrderSerializer(order).data)
+        return http_success_response(
+            OrderSerializer(order).data,
+            status.HTTP_200_OK
+        )
 
     @action(
         detail=True, methods=['post'], serializer_class=OrderStatusSerializer
@@ -68,19 +85,23 @@ class OrderViewSet(
     def process(self, request, pk=None):
         order = Order.objects.get(id=pk)
         if order.status not in Order.EDITABLE_STATUS:
-            # TODO: add to custom response
-            return Response({
-                "ok": False,
-                "message": "Cant proccess with curren status value."
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return http_error_response(
+                enums.Errors.NOT_EDITABLE_ORDER_ERROR.value,
+                status.HTTP_400_BAD_REQUEST
+            )
 
-        products = order.details.all()
-        for product in products:
+        details = order.orderdetail_set.all()
+        for detail in details:
             if order.movement_type == Order.MovementStatus.EGRESS.value:
-                product.can_be_supplied(product.quantity)
-                product.substract_stock_quantity(product.quantity)
+                if not detail.product.can_be_supplied(detail.quantity):
+                    return http_error_response(
+                        enums.Errors.STOCK_AVAILABILITY_ERROR.value,
+                        status.HTTP_400_BAD_REQUEST
+                    )
+
+                detail.product.substract_stock_quantity(detail.quantity)
             else:
-                product.add_stock_quantity(product.quantity)
+                detail.product.add_stock_quantity(detail.quantity)
 
         return self._manage_order_status(
             order, Order.OrderStatus.PROCESSED.value
@@ -91,20 +112,25 @@ class OrderViewSet(
     )
     def cancel(self, request, pk=None):
         order = Order.objects.get(id=pk)
+        if order.status == Order.OrderStatus.CANCELLED.value:
+            return http_error_response(
+                enums.Errors.ORDER_ALREADY_CANCELLED.value,
+                status.HTTP_400_BAD_REQUEST
+            )
+
         if order.status == Order.OrderStatus.PROCESSED.value:
-            # TODO: add to custom response
-            return Response({
-                "ok": False,
-                "message": "Already cancelled."
-            }, status=status.HTTP_400_BAD_REQUEST)
-        if order.status == Order.OrderStatus.PROCESSED.value:
-            products = order.details
-            for product in products:
+            details = order.orderdetail_set.all()
+            for detail in details:
                 if order.movement_type == Order.MovementStatus.INGRESS.value:
-                    product.add_stock_quantity(product.quantity)
+                    if not (detail.product.can_be_supplied(detail.quantity)):
+                        return Response({
+                            "ok": False,
+                            "message": "This order cant be cancelled due stock availability."
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
+                    detail.product.substract_stock_quantity(detail.quantity)
                 else:
-                    product.can_be_supplied(product.quantity)
-                    product.substract_stock_quantity(product.quantity)
+                    detail.product.add_stock_quantity(detail.quantity)
 
         return self._manage_order_status(
             order, Order.OrderStatus.CANCELLED.value
